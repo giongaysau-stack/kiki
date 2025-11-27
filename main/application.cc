@@ -696,13 +696,13 @@ void Application::Start() {
                     std::string ip_message = "🌐 " + control_url;
                     
                     // Try ShowNotification first (for temporary display)
-                    display->ShowNotification(ip_message, 30000);  // 30 seconds max
+                    display->ShowNotification(ip_message, 5000);  // 5 seconds max
                     
                     // Also set as chat message (for persistent display)
                     display->SetChatMessage("system", ip_message.c_str());
                     display->SetEmotion("happy");
                     
-                    ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (will show for 30s)", control_url.c_str());
+                    ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (will show for 5s)", control_url.c_str());
                 }
                 
                 // Play notification sound without AI processing to save PSRAM
@@ -1056,13 +1056,13 @@ void Application::Start() {
                 std::string ip_message = "🌐 " + control_url;
                 
                 // Try ShowNotification first (for temporary display)
-                display->ShowNotification(ip_message, 30000);  // 30 seconds max
+                display->ShowNotification(ip_message, 5000);  // 5 seconds max
                 
                 // Also set as chat message (for persistent display)
                 display->SetChatMessage("system", ip_message.c_str());
                 display->SetEmotion("happy");
                 
-                ESP_LOGI(TAG, "✅ IP AUTO-DISPLAYED: %s (will show for 30s)", control_url.c_str());
+                ESP_LOGI(TAG, "✅ IP AUTO-DISPLAYED: %s (will show for 5s)", control_url.c_str());
             }
             
             // Play notification sound for auto-start
