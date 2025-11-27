@@ -1006,6 +1006,71 @@ void Application::Start() {
         display->SetChatMessage("system", "");
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+        
+        // Auto-start control panel after 5 seconds for 5 minutes
+        ESP_LOGI(TAG, "⏰ Device ready, scheduling auto-start of control panel in 5 seconds");
+        Schedule([this, display]() {
+            vTaskDelay(pdMS_TO_TICKS(5000));  // Wait 5 seconds after device is ready
+            
+            ESP_LOGI(TAG, "🚀 Auto-starting control panel (will auto-stop after 5 minutes)");
+            
+            // Start webserver in background
+            Schedule([this, display]() {
+                try {
+                    // Start webserver
+                    esp_err_t webserver_result = otto_start_webserver();
+                    if (webserver_result == ESP_OK) {
+                        ESP_LOGI(TAG, "✅ Webserver auto-started successfully (will auto-stop after 5 min)");
+                    } else {
+                        ESP_LOGW(TAG, "⚠️ Webserver auto-start failed: %s", esp_err_to_name(webserver_result));
+                    }
+                } catch (const std::exception& e) {
+                    ESP_LOGE(TAG, "❌ Exception auto-starting webserver: %s", e.what());
+                }
+            });
+            
+            // Get and display IP immediately (outside Schedule for faster response)
+            esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+            if (netif == nullptr) {
+                netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+            }
+            
+            std::string control_url = "http://192.168.4.1";
+            if (netif) {
+                esp_netif_ip_info_t ip_info;
+                if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                    char ip_str[16];
+                    esp_ip4addr_ntoa(&ip_info.ip, ip_str, sizeof(ip_str));
+                    control_url = "http://";
+                    control_url += ip_str;
+                    ESP_LOGI(TAG, "📍 Auto-display IP: %s", ip_str);
+                } else {
+                    ESP_LOGW(TAG, "⚠️ Failed to get IP info for auto-display, using default AP IP");
+                }
+            } else {
+                ESP_LOGW(TAG, "⚠️ No network interface found for auto-display, using default AP IP");
+            }
+            
+            // Display IP immediately using both methods for maximum visibility
+            if (display) {
+                std::string ip_message = "🌐 " + control_url;
+                
+                // Try ShowNotification first (for temporary display)
+                display->ShowNotification(ip_message, 30000);  // 30 seconds max
+                
+                // Also set as chat message (for persistent display)
+                display->SetChatMessage("system", ip_message.c_str());
+                display->SetEmotion("happy");
+                
+                ESP_LOGI(TAG, "✅ IP AUTO-DISPLAYED: %s (will show for 30s)", control_url.c_str());
+            }
+            
+            // Play notification sound for auto-start
+            Schedule([this]() {
+                ESP_LOGI(TAG, "🔔 Playing notification sound for auto-start web server");
+                PlaySound("ding");  // Simple notification sound
+            });
+        });
     }
 }
 
