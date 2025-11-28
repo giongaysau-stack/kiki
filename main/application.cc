@@ -1182,6 +1182,11 @@ void Application::SetDeviceState(DeviceState state) {
             display->SetEmotion("neutral");
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
+#if defined(CONFIG_BOARD_TYPE_OTTO_ROBOT) || defined(CONFIG_BOARD_TYPE_KIKI)
+            // Wag tail 3 times when entering standby mode
+            otto_controller_queue_action(ACTION_DOG_WAG_TAIL, 3, 100, 0, 0);
+            ESP_LOGI(TAG, "🐕 Robot entering standby, wagging tail 3 times");
+#endif
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
