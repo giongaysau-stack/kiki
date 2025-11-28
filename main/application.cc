@@ -1,4 +1,4 @@
-#include "application.h"
+﻿#include "application.h"
 #include "board.h"
 #include "display.h"
 #include "system_info.h"
@@ -691,24 +691,16 @@ void Application::Start() {
                     ESP_LOGW(TAG, "⚠️ No network interface found, using default AP IP");
                 }
                 
-                // Display IP immediately using both methods for maximum visibility
+                // Display IP using ShowNotification only (10 seconds)
                 if (display) {
                     std::string ip_message = "🌐 " + control_url;
-                    
-                    // Try ShowNotification first (for temporary display)
-                    display->ShowNotification(ip_message, 30000);  // 30 seconds max
-                    
-                    // Also set as chat message (for persistent display)
-                    display->SetChatMessage("system", ip_message.c_str());
-                    display->SetEmotion("happy");
-                    
-                    ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (will show for 30s)", control_url.c_str());
+                    display->ShowNotification(ip_message, 10000);  // 10 seconds
+                    ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (10s notification)", control_url.c_str());
                 }
                 
-                // Play notification sound without AI processing to save PSRAM
+                // Play notification sound
                 Schedule([this]() {
-                    ESP_LOGI(TAG, "� Playing notification sound for web server ready");
-                    PlaySound("ding");  // Simple notification sound
+                    PlaySound("ding");
                 });
                 
                 // Don't send to AI server - return early
