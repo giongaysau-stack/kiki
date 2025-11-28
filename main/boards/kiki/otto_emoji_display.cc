@@ -11,6 +11,11 @@
 #include <string>
 #include <memory>
 
+// QR Code generator library
+extern "C" {
+#include "qrcode/qrcodegen.h"
+}
+
 // External font declaration (PuHui supports Vietnamese)
 extern "C" {
     LV_FONT_DECLARE(font_puhui_16_4);
@@ -73,7 +78,10 @@ OttoEmojiDisplay::OttoEmojiDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
       display_on_(true),      // Display starts on
       auto_off_enabled_(true), // Auto-off enabled by default
       auto_off_timer_(nullptr),
-      emoji_overlay_mode_(false) { // Emoji overlay disabled by default
+      emoji_overlay_mode_(false),
+      qr_canvas_(nullptr),
+      qr_canvas_buf_(nullptr),
+      qr_timer_(nullptr) { // Emoji overlay disabled by default
     
     // Create auto-off timer (5 minutes = 300000 ms)
     const esp_timer_create_args_t timer_args = {
@@ -640,5 +648,182 @@ void OttoEmojiDisplay::SetChatMessageHidden(bool hidden) {
     } else {
         lv_obj_remove_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
         ESP_LOGI(TAG, "👁️ Chat message SHOWN after QR display");
+    }
+}
+
+// ==================== QR Code Display ====================
+
+static void qr_timer_callback(void* arg) {
+    OttoEmojiDisplay* display = static_cast<OttoEmojiDisplay*>(arg);
+    if (display) {
+        display->HideQRCode();
+    }
+}
+
+void OttoEmojiDisplay::ShowQRCode(const char* url, int duration_ms) {
+    if (!url || strlen(url) == 0) {
+        ESP_LOGW(TAG, "❌ Empty URL for QR code");
+        return;
+    }
+    
+    ESP_LOGI(TAG, "📱 Generating QR code for: %s", url);
+    
+    // Hide existing QR first (outside lock to avoid deadlock)
+    HideQRCode();
+    
+    // Use static buffers for QR generation to avoid stack overflow
+    // Version 3 can hold up to 77 alphanumeric chars, enough for IP addresses
+    static uint8_t tempBuffer[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
+    static uint8_t qrcode[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
+    
+    // Generate QR code with low error correction (smaller size)
+    bool ok = qrcodegen_encodeText(url, tempBuffer, qrcode,
+        qrcodegen_Ecc_LOW, 1, 3, qrcodegen_Mask_AUTO, true);
+    
+    if (!ok) {
+        ESP_LOGE(TAG, "❌ Failed to generate QR code");
+        return;
+    }
+    
+    int qr_size = qrcodegen_getSize(qrcode);
+    ESP_LOGI(TAG, "✅ QR code generated, size: %dx%d modules", qr_size, qr_size);
+    
+    DisplayLockGuard lock(this);
+    
+    // Calculate scale and position to center QR code
+    int display_size = (width_ < height_) ? width_ : height_;
+    int scale = (display_size - 20) / qr_size;  // Leave 10px margin
+    if (scale < 1) scale = 1;
+    if (scale > 6) scale = 6;  // Max scale to keep buffer small
+    
+    int qr_pixel_size = qr_size * scale;
+    int offset_x = (width_ - qr_pixel_size) / 2;
+    int offset_y = (height_ - qr_pixel_size) / 2;
+    
+    // Hide emoji and chat during QR display
+    if (emotion_gif_) {
+        lv_obj_add_flag(emotion_gif_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (chat_message_label_) {
+        lv_obj_add_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Allocate canvas buffer first (RGB565 = 2 bytes per pixel)
+    // Use smaller canvas size (just QR code area + margin)
+    int canvas_size = qr_pixel_size + 20;  // 10px margin each side
+    if (canvas_size > width_) canvas_size = width_;
+    if (canvas_size > height_) canvas_size = height_;
+    
+    size_t buf_size = canvas_size * canvas_size * 2;
+    qr_canvas_buf_ = heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!qr_canvas_buf_) {
+        // Try without DMA requirement
+        qr_canvas_buf_ = heap_caps_malloc(buf_size, MALLOC_CAP_INTERNAL);
+    }
+    if (!qr_canvas_buf_) {
+        ESP_LOGE(TAG, "❌ Failed to allocate QR canvas buffer (%d bytes)", buf_size);
+        // Restore UI
+        if (emotion_gif_) lv_obj_remove_flag(emotion_gif_, LV_OBJ_FLAG_HIDDEN);
+        if (chat_message_label_) lv_obj_remove_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    
+    // Create QR canvas
+    qr_canvas_ = lv_canvas_create(container_);
+    if (!qr_canvas_) {
+        ESP_LOGE(TAG, "❌ Failed to create QR canvas");
+        heap_caps_free(qr_canvas_buf_);
+        qr_canvas_buf_ = nullptr;
+        if (emotion_gif_) lv_obj_remove_flag(emotion_gif_, LV_OBJ_FLAG_HIDDEN);
+        if (chat_message_label_) lv_obj_remove_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    
+    lv_canvas_set_buffer(qr_canvas_, qr_canvas_buf_, canvas_size, canvas_size, LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_size(qr_canvas_, canvas_size, canvas_size);
+    // Center the canvas
+    lv_obj_set_pos(qr_canvas_, (width_ - canvas_size) / 2, (height_ - canvas_size) / 2);
+    
+    // Fill with white background
+    lv_canvas_fill_bg(qr_canvas_, lv_color_white(), LV_OPA_COVER);
+    
+    // Recalculate offset for centered canvas
+    int canvas_offset = (canvas_size - qr_pixel_size) / 2;
+    
+    // Draw QR code modules
+    for (int y = 0; y < qr_size; y++) {
+        for (int x = 0; x < qr_size; x++) {
+            if (qrcodegen_getModule(qrcode, x, y)) {
+                // Draw black module (scaled)
+                for (int dy = 0; dy < scale; dy++) {
+                    for (int dx = 0; dx < scale; dx++) {
+                        int px = canvas_offset + x * scale + dx;
+                        int py = canvas_offset + y * scale + dy;
+                        if (px >= 0 && px < canvas_size && py >= 0 && py < canvas_size) {
+                            lv_canvas_set_px(qr_canvas_, px, py, lv_color_black(), LV_OPA_COVER);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    lv_obj_move_foreground(qr_canvas_);
+    ESP_LOGI(TAG, "✅ QR code displayed (scale: %d, canvas: %dx%d, duration: %dms)", 
+             scale, canvas_size, canvas_size, duration_ms);
+    
+    // Set timer to auto-hide
+    if (duration_ms > 0) {
+        if (!qr_timer_) {
+            const esp_timer_create_args_t timer_args = {
+                .callback = qr_timer_callback,
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "qr_hide_timer",
+                .skip_unhandled_events = false
+            };
+            esp_err_t err = esp_timer_create(&timer_args, &qr_timer_);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "❌ Failed to create QR timer: %s", esp_err_to_name(err));
+                return;
+            }
+        }
+        esp_timer_stop(qr_timer_);
+        esp_timer_start_once(qr_timer_, (uint64_t)duration_ms * 1000);
+    }
+}
+
+void OttoEmojiDisplay::HideQRCode() {
+    // Stop timer first (outside lock)
+    if (qr_timer_) {
+        esp_timer_stop(qr_timer_);
+    }
+    
+    // Check if there's anything to hide
+    if (!qr_canvas_ && !qr_canvas_buf_) {
+        return;
+    }
+    
+    DisplayLockGuard lock(this);
+    
+    // Delete canvas object
+    if (qr_canvas_) {
+        lv_obj_del(qr_canvas_);
+        qr_canvas_ = nullptr;
+    }
+    
+    // Free buffer (we saved it ourselves)
+    if (qr_canvas_buf_) {
+        heap_caps_free(qr_canvas_buf_);
+        qr_canvas_buf_ = nullptr;
+        ESP_LOGI(TAG, "🧹 QR code hidden");
+    }
+    
+    // Restore emoji and chat
+    if (emotion_gif_) {
+        lv_obj_remove_flag(emotion_gif_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (chat_message_label_) {
+        lv_obj_remove_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
     }
 }

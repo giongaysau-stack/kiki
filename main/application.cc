@@ -686,19 +686,24 @@ void Application::Start() {
                         control_url = "http://";
                         control_url += ip_str;
                         ESP_LOGI(TAG, "📍 Device IP: %s", ip_str);
-                    } else {
-                        ESP_LOGW(TAG, "⚠️ Failed to get IP info, using default AP IP");
                     }
-                } else {
-                    ESP_LOGW(TAG, "⚠️ No network interface found, using default AP IP");
                 }
                 
-                // Display IP using ShowNotification only (15 seconds)
+                // Display QR code instead of IP text (15 seconds)
+#if defined(CONFIG_BOARD_TYPE_OTTO_ROBOT) || defined(CONFIG_BOARD_TYPE_KIKI)
+                auto otto_display = dynamic_cast<OttoEmojiDisplay*>(display);
+                if (otto_display) {
+                    otto_display->ShowQRCode(control_url.c_str(), 15000);  // 15 seconds
+                    ESP_LOGI(TAG, "✅ QR CODE DISPLAYED: %s (15s)", control_url.c_str());
+                } else {
+                    display->ShowNotification("🌐 " + control_url, 15000);
+                }
+#else
                 if (display) {
-                    std::string ip_message = "🌐 " + control_url;
-                    display->ShowNotification(ip_message, 15000);  // 15 seconds
+                    display->ShowNotification("🌐 " + control_url, 15000);
                     ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (15s notification)", control_url.c_str());
                 }
+#endif
                 
                 // Play notification sound
                 Schedule([this]() {
@@ -1182,11 +1187,6 @@ void Application::SetDeviceState(DeviceState state) {
             display->SetEmotion("neutral");
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
-#if defined(CONFIG_BOARD_TYPE_OTTO_ROBOT) || defined(CONFIG_BOARD_TYPE_KIKI)
-            // Wag tail 3 times when entering standby mode
-            otto_controller_queue_action(ACTION_DOG_WAG_TAIL, 3, 100, 0, 0);
-            ESP_LOGI(TAG, "🐕 Robot entering standby, wagging tail 3 times");
-#endif
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);

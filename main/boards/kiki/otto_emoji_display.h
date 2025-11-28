@@ -63,6 +63,10 @@ public:
     
     // Hide/show chat message (for QR code display)
     void SetChatMessageHidden(bool hidden); // Hide or show chat message
+    
+    // QR Code display methods
+    void ShowQRCode(const char* url, int duration_ms = 15000);  // Show QR code for URL
+    void HideQRCode();  // Hide QR code and restore normal display
 
 private:
     void SetupGifContainer();
@@ -87,6 +91,11 @@ private:
 
     // Emoji overlay mode
     bool emoji_overlay_mode_;        ///< When true, emoji is displayed on top of chat message
+
+    // QR Code display
+    lv_obj_t* qr_canvas_;            ///< Canvas for QR code display
+    void* qr_canvas_buf_;            ///< Buffer for QR canvas (saved for proper cleanup)
+    esp_timer_handle_t qr_timer_;    ///< Timer for auto-hide QR code
 
     // 表情映射
     struct EmotionMap {
