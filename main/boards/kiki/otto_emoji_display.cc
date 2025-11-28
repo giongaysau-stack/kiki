@@ -697,8 +697,6 @@ void OttoEmojiDisplay::ShowQRCode(const char* url, int duration_ms) {
     if (scale > 6) scale = 6;  // Max scale to keep buffer small
     
     int qr_pixel_size = qr_size * scale;
-    int offset_x = (width_ - qr_pixel_size) / 2;
-    int offset_y = (height_ - qr_pixel_size) / 2;
     
     // Hide emoji and chat during QR display
     if (emotion_gif_) {
