@@ -636,6 +636,8 @@ void Application::Start() {
                 lower_message.find("bang dieu khien") != std::string::npos ||
                 lower_message.find("mở trang điều khiển") != std::string::npos ||
                 lower_message.find("mo trang dieu khien") != std::string::npos ||
+                lower_message.find("mở lại trang điều khiển") != std::string::npos ||
+                lower_message.find("mo lai trang dieu khien") != std::string::npos ||
                 lower_message.find("trang điều khiển") != std::string::npos ||
                 lower_message.find("trang dieu khien") != std::string::npos ||
                 lower_message.find("web control") != std::string::npos ||
@@ -691,11 +693,11 @@ void Application::Start() {
                     ESP_LOGW(TAG, "⚠️ No network interface found, using default AP IP");
                 }
                 
-                // Display IP using ShowNotification only (10 seconds)
+                // Display IP using ShowNotification only (15 seconds)
                 if (display) {
                     std::string ip_message = "🌐 " + control_url;
-                    display->ShowNotification(ip_message, 10000);  // 10 seconds
-                    ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (10s notification)", control_url.c_str());
+                    display->ShowNotification(ip_message, 15000);  // 15 seconds
+                    ESP_LOGI(TAG, "✅ IP DISPLAYED: %s (15s notification)", control_url.c_str());
                 }
                 
                 // Play notification sound
